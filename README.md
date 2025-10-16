@@ -164,7 +164,7 @@ The `specify` command supports the following options:
 | Argument/Option        | Type     | Description                                                                  |
 |------------------------|----------|------------------------------------------------------------------------------|
 | `<project-name>`       | Argument | Name for your new project directory (optional if using `--here`, or use `.` for current directory) |
-| `--ai`                 | Option   | AI assistant to use: `claude`, `gemini`, `copilot`, `cursor-agent`, `qwen`, `opencode`, `codex`, `windsurf`, `kilocode`, `auggie`, `roo`, `codebuddy`, or `q` |
+| `--ai`                 | Option   | AI assistant(s) to use. Provide a single key, a comma-separated list (e.g. `claude,codex`), or the bundle `multi-claude-codex-qwen-gemini`. Individual assistants include `claude`, `gemini`, `copilot`, `cursor-agent`, `qwen`, `opencode`, `codex`, `windsurf`, `kilocode`, `auggie`, `roo`, `codebuddy`, and `q`. |
 | `--script`             | Option   | Script variant to use: `sh` (bash/zsh) or `ps` (PowerShell)                 |
 | `--ignore-agent-tools` | Flag     | Skip checks for AI agent tools like Claude Code                             |
 | `--no-git`             | Flag     | Skip git repository initialization                                          |
@@ -191,6 +191,12 @@ specify init my-project --ai windsurf
 
 # Initialize with PowerShell scripts (Windows/cross-platform)
 specify init my-project --ai copilot --script ps
+
+# Initialize multiple agents at once (bundle)
+specify init my-project --ai multi-claude-codex-qwen-gemini
+
+# Initialize multiple agents explicitly (comma-separated)
+specify init my-project --ai claude,codex,qwen,gemini
 
 # Initialize in current directory
 specify init . --ai copilot

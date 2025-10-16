@@ -23,6 +23,8 @@ python -m src.specify_cli --help
 python -m src.specify_cli init demo-project --ai claude --ignore-agent-tools --script sh
 ```
 
+> 💡 Tip: Need multiple assistants? Pass a comma-separated list or the bundle key, for example `--ai claude,codex,qwen,gemini` or `--ai multi-claude-codex-qwen-gemini`.
+
 If you prefer invoking the script file style (uses shebang):
 
 ```bash
