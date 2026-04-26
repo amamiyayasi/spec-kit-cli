@@ -35,6 +35,8 @@ uvx --from git+https://github.com/github/spec-kit.git specify init <project_name
 uvx --from git+https://github.com/github/spec-kit.git specify init <project_name> --ai gemini
 uvx --from git+https://github.com/github/spec-kit.git specify init <project_name> --ai copilot
 uvx --from git+https://github.com/github/spec-kit.git specify init <project_name> --ai codebuddy
+uvx --from git+https://github.com/github/spec-kit.git specify init <project_name> --ai multi-claude-codex-qwen-gemini
+uvx --from git+https://github.com/github/spec-kit.git specify init <project_name> --ai claude,codex,qwen,gemini
 ```
 
 ### Specify Script Type (Shell vs PowerShell)

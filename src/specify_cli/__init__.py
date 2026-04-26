@@ -146,6 +146,13 @@ AGENT_CONFIG = {
     },
 }
 
+AGENT_BUNDLES = {
+    "multi-claude-codex-qwen-gemini": {
+        "label": "Claude Code + Codex + Qwen Code + Gemini (bundle)",
+        "agents": ["claude", "codex", "qwen", "gemini"],
+    },
+}
+
 SCRIPT_TYPE_CHOICES = {"sh": "POSIX Shell (bash/zsh)", "ps": "PowerShell"}
 
 CLAUDE_LOCAL_PATH = Path.home() / ".claude" / "local" / "claude"
@@ -339,6 +346,33 @@ def select_with_arrows(options: dict, prompt_text: str = "Select an option", def
         raise typer.Exit(1)
 
     return selected_key
+
+
+def _resolve_agent_token(token: str) -> list[str]:
+    """Resolve a single selection token into one or more agent keys."""
+    if token in AGENT_CONFIG:
+        return [token]
+    if token in AGENT_BUNDLES:
+        return AGENT_BUNDLES[token]["agents"]
+    raise KeyError(token)
+
+
+def resolve_agent_selection(raw_selection: str) -> list[str]:
+    """Parse a raw selection string into a unique ordered list of agent keys."""
+    tokens = [part.strip() for part in raw_selection.split(",") if part.strip()]
+    if not tokens:
+        raise ValueError("No AI assistants specified")
+
+    resolved: list[str] = []
+    for token in tokens:
+        try:
+            agent_keys = _resolve_agent_token(token)
+        except KeyError as exc:
+            raise ValueError(f"Unknown option: {token}") from exc
+        for agent in agent_keys:
+            if agent not in resolved:
+                resolved.append(agent)
+    return resolved
 
 console = Console()
 
@@ -788,7 +822,14 @@ def ensure_executable_scripts(project_path: Path, tracker: StepTracker | None = 
 @app.command()
 def init(
     project_name: str = typer.Argument(None, help="Name for your new project directory (optional if using --here, or use '.' for current directory)"),
-    ai_assistant: str = typer.Option(None, "--ai", help="AI assistant to use: claude, gemini, copilot, cursor-agent, qwen, opencode, codex, windsurf, kilocode, auggie, codebuddy, or q"),
+    ai_assistant: str = typer.Option(
+        None,
+        "--ai",
+        help=(
+            "AI assistant(s) to use. Provide a single key, a comma-separated list (e.g. 'claude,codex'), "
+            "or the bundle 'multi-claude-codex-qwen-gemini'."
+        ),
+    ),
     script_type: str = typer.Option(None, "--script", help="Script type to use: sh or ps"),
     ignore_agent_tools: bool = typer.Option(False, "--ignore-agent-tools", help="Skip checks for AI agent tools like Claude Code"),
     no_git: bool = typer.Option(False, "--no-git", help="Skip git repository initialization"),
@@ -886,37 +927,51 @@ def init(
         if not should_init_git:
             console.print("[yellow]Git not found - will skip repository initialization[/yellow]")
 
+    selected_agents: list[str] = []
+
     if ai_assistant:
-        if ai_assistant not in AGENT_CONFIG:
-            console.print(f"[red]Error:[/red] Invalid AI assistant '{ai_assistant}'. Choose from: {', '.join(AGENT_CONFIG.keys())}")
+        try:
+            selected_agents = resolve_agent_selection(ai_assistant)
+        except ValueError as exc:
+            valid_options = list(AGENT_CONFIG.keys()) + list(AGENT_BUNDLES.keys())
+            console.print(f"[red]Error:[/red] Invalid AI assistant selection '{ai_assistant}'.")
+            console.print(f"[red]Details:[/red] {exc}")
+            console.print(f"[dim]Valid options:[/dim] {', '.join(valid_options)}")
             raise typer.Exit(1)
-        selected_ai = ai_assistant
     else:
-        # Create options dict for selection (agent_key: display_name)
         ai_choices = {key: config["name"] for key, config in AGENT_CONFIG.items()}
-        selected_ai = select_with_arrows(
-            ai_choices, 
-            "Choose your AI assistant:", 
+        for bundle_key, bundle in AGENT_BUNDLES.items():
+            ai_choices[bundle_key] = bundle["label"]
+
+        selected_choice = select_with_arrows(
+            ai_choices,
+            "Choose your AI assistant:",
             "copilot"
         )
+        selected_agents = resolve_agent_selection(selected_choice)
+
+    if not selected_agents:
+        console.print("[red]Error:[/red] No AI assistants selected")
+        raise typer.Exit(1)
 
     if not ignore_agent_tools:
-        agent_config = AGENT_CONFIG.get(selected_ai)
-        if agent_config and agent_config["requires_cli"]:
-            install_url = agent_config["install_url"]
-            if not check_tool(selected_ai):
-                error_panel = Panel(
-                    f"[cyan]{selected_ai}[/cyan] not found\n"
-                    f"Install from: [cyan]{install_url}[/cyan]\n"
-                    f"{agent_config['name']} is required to continue with this project type.\n\n"
-                    "Tip: Use [cyan]--ignore-agent-tools[/cyan] to skip this check",
-                    title="[red]Agent Detection Error[/red]",
-                    border_style="red",
-                    padding=(1, 2)
-                )
-                console.print()
-                console.print(error_panel)
-                raise typer.Exit(1)
+        for agent_key in selected_agents:
+            agent_config = AGENT_CONFIG.get(agent_key)
+            if agent_config and agent_config["requires_cli"]:
+                install_url = agent_config["install_url"]
+                if not check_tool(agent_key):
+                    error_panel = Panel(
+                        f"[cyan]{agent_key}[/cyan] not found\n"
+                        f"Install from: [cyan]{install_url}[/cyan]\n"
+                        f"{agent_config['name']} is required to continue with this project type.\n\n"
+                        "Tip: Use [cyan]--ignore-agent-tools[/cyan] to skip this check",
+                        title="[red]Agent Detection Error[/red]",
+                        border_style="red",
+                        padding=(1, 2)
+                    )
+                    console.print()
+                    console.print(error_panel)
+                    raise typer.Exit(1)
 
     if script_type:
         if script_type not in SCRIPT_TYPE_CHOICES:
@@ -931,7 +986,9 @@ def init(
         else:
             selected_script = default_script
 
-    console.print(f"[cyan]Selected AI assistant:[/cyan] {selected_ai}")
+    ai_display = ", ".join(selected_agents)
+    ai_label = "assistants" if len(selected_agents) > 1 else "assistant"
+    console.print(f"[cyan]Selected AI {ai_label}:[/cyan] {ai_display}")
     console.print(f"[cyan]Selected script type:[/cyan] {selected_script}")
 
     tracker = StepTracker("Initialize Specify Project")
@@ -941,7 +998,7 @@ def init(
     tracker.add("precheck", "Check required tools")
     tracker.complete("precheck", "ok")
     tracker.add("ai-select", "Select AI assistant")
-    tracker.complete("ai-select", f"{selected_ai}")
+    tracker.complete("ai-select", ai_display)
     tracker.add("script-select", "Select script type")
     tracker.complete("script-select", selected_script)
     for key, label in [
@@ -950,6 +1007,7 @@ def init(
         ("extract", "Extract template"),
         ("zip-list", "Archive contents"),
         ("extracted-summary", "Extraction summary"),
+        ("multi", "Merge additional AI templates"),
         ("chmod", "Ensure scripts executable"),
         ("cleanup", "Cleanup"),
         ("git", "Initialize git repository"),
@@ -957,8 +1015,13 @@ def init(
     ]:
         tracker.add(key, label)
 
+    if len(selected_agents) <= 1:
+        tracker.skip("multi", "single agent")
+
     # Track git error message outside Live context so it persists
     git_error_message = None
+
+    primary_agent = selected_agents[0]
 
     with Live(tracker.render(), console=console, refresh_per_second=8, transient=True) as live:
         tracker.attach_refresh(lambda: live.update(tracker.render()))
@@ -967,7 +1030,29 @@ def init(
             local_ssl_context = ssl_context if verify else False
             local_client = httpx.Client(verify=local_ssl_context)
 
-            download_and_extract_template(project_path, selected_ai, selected_script, here, verbose=False, tracker=tracker, client=local_client, debug=debug, github_token=github_token)
+            download_and_extract_template(project_path, primary_agent, selected_script, here, verbose=False, tracker=tracker, client=local_client, debug=debug, github_token=github_token)
+
+            extra_agents = selected_agents[1:]
+            if extra_agents:
+                tracker.start("multi", f"{len(extra_agents)} remaining")
+                try:
+                    for index, agent in enumerate(extra_agents, start=1):
+                        tracker.start("multi", f"{agent} ({index}/{len(extra_agents)})")
+                        download_and_extract_template(
+                            project_path,
+                            agent,
+                            selected_script,
+                            True,
+                            verbose=False,
+                            tracker=None,
+                            client=local_client,
+                            debug=debug,
+                            github_token=github_token,
+                        )
+                    tracker.complete("multi", f"{len(extra_agents)} agents")
+                except Exception as merge_error:
+                    tracker.error("multi", str(merge_error))
+                    raise
 
             ensure_executable_scripts(project_path, tracker=tracker)
 
@@ -1027,12 +1112,32 @@ def init(
         console.print(git_error_panel)
 
     # Agent folder security notice
-    agent_config = AGENT_CONFIG.get(selected_ai)
-    if agent_config:
-        agent_folder = agent_config["folder"]
+    agent_configs: list[dict] = []
+    for agent_key in selected_agents:
+        config = AGENT_CONFIG.get(agent_key)
+        if config:
+            agent_configs.append(config)
+    if agent_configs:
+        if len(agent_configs) == 1:
+            agent_config = agent_configs[0]
+            agent_folder = agent_config["folder"]
+            security_body = (
+                "Some agents may store credentials, auth tokens, or other identifying and private artifacts in the agent folder within your project.\n"
+                f"Consider adding [cyan]{agent_folder}[/cyan] (or parts of it) to [cyan].gitignore[/cyan] to prevent accidental credential leakage."
+            )
+        else:
+            folder_lines = "\n".join(
+                f"• [cyan]{config['folder']}[/cyan] – {config['name']}"
+                for config in agent_configs
+            )
+            security_body = (
+                "Some agents may store credentials, auth tokens, or other identifying and private artifacts in their respective agent folders.\n\n"
+                f"{folder_lines}\n\n"
+                "Consider adding the folders above (or parts of them) to [cyan].gitignore[/cyan] to prevent accidental credential leakage."
+            )
+
         security_notice = Panel(
-            f"Some agents may store credentials, auth tokens, or other identifying and private artifacts in the agent folder within your project.\n"
-            f"Consider adding [cyan]{agent_folder}[/cyan] (or parts of it) to [cyan].gitignore[/cyan] to prevent accidental credential leakage.",
+            security_body,
             title="[yellow]Agent Folder Security[/yellow]",
             border_style="yellow",
             padding=(1, 2)
@@ -1049,7 +1154,7 @@ def init(
         step_num = 2
 
     # Add Codex-specific setup step if needed
-    if selected_ai == "codex":
+    if "codex" in selected_agents:
         codex_path = project_path / ".codex"
         quoted_path = shlex.quote(str(codex_path))
         if os.name == "nt":  # Windows
@@ -1060,7 +1165,7 @@ def init(
         steps_lines.append(f"{step_num}. Set [cyan]CODEX_HOME[/cyan] environment variable before running Codex: [cyan]{cmd}[/cyan]")
         step_num += 1
 
-    steps_lines.append(f"{step_num}. Start using slash commands with your AI agent:")
+    steps_lines.append(f"{step_num}. Start using slash commands with your AI {ai_label}:")
 
     steps_lines.append("   2.1 [cyan]/speckit.constitution[/] - Establish project principles")
     steps_lines.append("   2.2 [cyan]/speckit.specify[/] - Create baseline specification")
